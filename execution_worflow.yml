@@ -1,0 +1,79 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: exercise-workflow
+spec:
+  entrypoint: exercise-loop-flow
+  arguments:
+    parameters:
+    - name: testvalue
+      value: '3! + 5! * 7! + 3!'        # change this based on requirement
+  templates:
+  - name: exercise-loop-flow
+    inputs:
+        parameters:
+        - name: testvalue       # parameter declaration
+    steps:
+    # Split the given input
+    - - name: split-values
+        template: split-string
+        arguments:
+          parameters:
+          - name: testvalue
+            value: "{{inputs.parameters.testvalue}}"
+
+    # Calculate individual factorial values
+    - - name: calculate
+        template: calculate
+        arguments:
+          parameters:
+          - name: testvalue         # this is the env variable which "go" application expects
+            value: "{{item}}"
+        withParam: "{{steps.split-values.outputs.result}}"
+
+    # Combine the output in single result
+    - - name: calculate-result
+        template: load-output-json
+        arguments:
+          parameters:
+          - name: message
+            value: "{{steps.calculate.outputs.parameters}}"
+
+  - name: split-string
+    inputs:
+        parameters:
+        - name: testvalue
+    script:
+      image: python:alpine3.6
+      command: [python]
+      # split the input based on spaces and return array
+      source: |
+        import json, sys
+        json.dump("{{inputs.parameters.testvalue}}".split(" "), sys.stdout)
+
+  - name: calculate
+    inputs:
+      parameters:
+      - name: testvalue
+    # call the go executable to calculate the factorial
+    container:
+      image: himanshu1995/exercise
+      command: [sh, -c]
+      args: ["/main '{{inputs.parameters.testvalue}}' > /hello_world.txt && cat /hello_world.txt"]
+    outputs:
+      parameters:
+        - name: testvalue
+          valueFrom:
+            path: /hello_world.txt
+
+  - name: load-output-json
+    inputs:
+        parameters:
+        - name: message
+    # evaluate the final output
+    script:
+      image: python:alpine3.6
+      command: [python]
+      source: |
+        import json
+        print(eval("".join([i['testvalue'] for i in json.loads('{{inputs.parameters.message}}')])))
